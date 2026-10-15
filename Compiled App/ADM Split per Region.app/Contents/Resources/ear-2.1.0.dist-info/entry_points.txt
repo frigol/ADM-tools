@@ -1,0 +1,3 @@
+[console_scripts]
+ear-render = ear.cmdline.render_file:main
+ear-utils = ear.cmdline.utils:main

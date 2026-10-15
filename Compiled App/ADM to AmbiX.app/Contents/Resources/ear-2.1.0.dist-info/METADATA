@@ -1,0 +1,360 @@
+Metadata-Version: 2.4
+Name: ear
+Version: 2.1.0
+Summary: EBU ADM Renderer
+Home-page: https://github.com/ebu/ebu_adm_renderer
+Author: EBU
+Author-email: ear-admin@list.ebu.ch
+License: BSD-3-Clause-Clear
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy~=1.14
+Requires-Dist: scipy~=1.0
+Requires-Dist: attrs<22,>=19.3
+Requires-Dist: ruamel.yaml~=0.15
+Requires-Dist: lxml~=4.4
+Requires-Dist: six~=1.11
+Requires-Dist: multipledispatch~=0.5
+Provides-Extra: test
+Requires-Dist: pytest~=6.2; extra == "test"
+Requires-Dist: pytest-datafiles~=2.0; extra == "test"
+Requires-Dist: pytest-cov~=3.0; extra == "test"
+Requires-Dist: soundfile~=0.10; extra == "test"
+Provides-Extra: dev
+Requires-Dist: flake8~=3.5; extra == "dev"
+Requires-Dist: flake8-print~=3.1; extra == "dev"
+Requires-Dist: flake8-string-format~=0.2; extra == "dev"
+Dynamic: author
+Dynamic: author-email
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: license
+Dynamic: license-file
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: summary
+
+# EBU ADM Renderer (EAR)
+
+[![build status badge](https://github.com/ebu/ebu_adm_renderer/workflows/test/badge.svg)](https://github.com/ebu/ebu_adm_renderer/actions?workflow=test)
+
+The **EBU ADM Renderer** **(*EAR*)** is a complete interpretation of the **Audio Definition Model (ADM)** format, specified in Recommendation [ITU-R BS.2076-1](https://www.itu.int/rec/R-REC-BS.2076/en). ADM is the recommended format for all stages and use cases within the scope of programme productions of **Next Generation Audio (NGA)**. This repository contains a Python reference implementation of the EBU ADM Renderer.
+
+This Renderer implementation is capable of rendering audio signals to all reproduction systems mentioned in ["Advanced sound system for programme production (ITU-R BS.2051-1)"](https://www.itu.int/rec/R-REC-BS.2051/en).
+
+Further descriptions of the *EAR* algorithms and functionalities can be found in [EBU Tech 3388](https://tech.ebu.ch/publications/adm-renderer-for-use-in-nga-broadcasting).
+
+***Note: Version 2.0 of the renderer represents also the reference implementation of [ITU-R BS.2127 (ITU ADM Renderer)](https://www.itu.int/rec/R-REC-BS.2127/en)***
+
+## Test files
+A initial set of ADM files to test the *EAR* can be found under
+  - https://ebu.io/qc/testmaterial and
+  - http://cvssp.org/data/s3a/public/radiodrama_register.php
+
+## Installation
+
+To install the latest release from PyPi:
+
+```bash
+$ pip install ear
+```
+
+### Python versions
+
+*EAR* supports Python >=3.6 and runs on all major platforms (Linux, Mac OSX,
+Windows).
+
+### Installation of extra packages
+
+If you want to run the unit tests you can install all extra requirements with pip:
+```bash
+$ pip install ear[test]
+```
+
+## Getting started
+
+The *EAR* reference implementation comes with two command line tools:
+
+- `ear-render` Is the main tool to render BW64/ADM audio files
+- `ear-utils` Collection of useful ADM utilities
+
+### Command line renderer
+
+```bash
+usage: ear-render [-h] [-d] -s target_system [-l layout_file]
+                  [--output-gain-db gain_db] [--fail-on-overload]
+                  [--enable-block-duration-fix] [--programme id]
+                  [--comp-object id]
+                  [--apply-conversion {to_cartesian,to_polar}] [--strict]
+                  input_file output_file
+
+EBU ADM renderer
+
+positional arguments:
+  input_file
+  output_file
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -d, --debug           print debug information when an error occurs
+  -s target_system, --system target_system
+                        Target output system, accoring to ITU-R BS.2051.
+                        Available systems are: 0+2+0, 0+5+0, 2+5+0, 4+5+0,
+                        4+5+1, 3+7+0, 4+9+0, 9+10+3, 0+7+0, 4+7+0
+  -l layout_file, --layout layout_file
+                        Layout config file
+  --output-gain-db gain_db
+                        output gain in dB (default: 0)
+  --fail-on-overload, -c
+                        fail if an overload condition is detected in the
+                        output
+  --enable-block-duration-fix
+                        automatically try to fix faulty block format durations
+  --programme id        select an audioProgramme to render by ID
+  --comp-object id      select an audioObject by ID from a complementary group
+  --apply-conversion {to_cartesian,to_polar}
+                        Apply conversion to Objects audioBlockFormats before
+                        rendering
+  --strict              treat unknown ADM attributes as errors
+```
+
+To render an ADM file, the following three parameters must be given:
+  - `-s` followed by the target output format to render to
+  - the name of the input file
+  - the name of the output file
+
+For example `ear-render -s 0+5+0 input.wav output_surround.wav` will render the BW64/ADM file `input.wav` to a `0+5+0` target speaker layout and store the result in `output_surround.wav`.
+
+The *optional* `--layout` parameter allows to specify the real loudspeaker positions and screen dimensions of a reproduction setup.
+Refer to [the layout file documentation](doc/layout_file.md) for more information about its format.
+
+`--fail-on-overload` makes the rendering process fail in case an overload in the output channels to ensure any signal clipping doesn't go unnoticed. Use `--output-gain-db` to adjust the output gain.
+
+`--enable-block-duration-fix` automatically fixes durations of `audioBlockFormats` in case they are not continuous.
+**Please note** that the proper way to handle this situation is to fix the input file.
+
+`--strict` enables strict ADM parsing mode. Some of the currently available
+ADM/BW64 files may not strictly adhere to the BS.2076 specification, for example by including xml attributes that are not part of the standard.
+The default behaviour is to output a warning and continue processing.
+When strict mode is enabled, warnings are turned into errors and processing is  stopped.
+
+
+**Please note** that, depending on the size of the file, it may
+take some time to render the file. At the time of writing, the parsing of the ADM XML data is relatively slow when the ADM is large (>= a few megabytes).
+
+### Command line ADM utilities
+
+The `ear-utils` command provides various subcommands which can be seen on the help message
+when called with `ear-utils --help`:
+
+Each subcommand may have its own command line options, which can be
+displayed using `ear-utils SUBCOMMAND --help`, where `SUBCOMMAND` is one of the supported subcommands.
+
+```bash
+usage: ear-utils [-h]
+                 {make_test_bwf,replace_axml,dump_axml,dump_chna,ambix_to_bwf}
+                 ...
+
+EBU ADM renderer utilities
+
+optional arguments:
+  -h, --help            show this help message and exit
+
+available subcommands:
+  {make_test_bwf,replace_axml,dump_axml,dump_chna,ambix_to_bwf}
+    make_test_bwf       make a bwf file from a wav file and some metadata
+    replace_axml        replace the axml chunk in an existing ADM BWF file
+    dump_axml           dump the axml chunk of an ADM BWF file to stdout
+    dump_chna           dump the chna chunk of an ADM BWF file to stdout
+    ambix_to_bwf        make a BWF file from an ambix format HOA file
+```
+
+#### HOA ADM Creation
+```bash
+usage: ear-utils ambix_to_bwf [-h] [--norm NORM] [--nfcDist NFCDIST]
+                              [--screenRef] [--chna-only]
+                              input output
+
+positional arguments:
+  input              input file
+  output             output BWF file
+
+optional arguments:
+  -h, --help         show this help message and exit
+  --norm NORM        normalization mode
+  --nfcDist NFCDIST  Near-Field Compensation Distance (float)
+  --screenRef        Screen Reference
+  --chna-only        use only CHNA with common definitions
+```
+
+
+To convert an ambiX file in an ADM one, the following two parameters must be given:
+-   the name of the input file
+-   the name of the output file
+
+The optional parameters are :
+-   The normalization of the signals (N3D, FuMa or SN3D, which is the default value)
+-   The NFC Distance, i.e., the distance at which the HOA mix was created. A float value between 0 and 20 meters must be given.
+    The default value 0 means no NFC processing.
+-   The screenRef flag, which tells if the audio content is screen related or not. The default value is False, which means no screen scaling.
+
+For example, `ear-utils ambix_to_bwf --nfcDist 2.53 input.wav output.wav` will create an ADM file called output.wav containing the audio samples of the input.wav file and the ADM metadata corresponding to an ambiX file with SN3D normalization, an 2.53 meters nfcDist, and no screen scaling.
+
+**Please note** that the software implicitly assumes that all the HOA channels are in ACN ordering and that no channel is missing. For example, it will assumes the signal is a 4th order HOA signal if it finds 25 channels ((4+1)²=25).
+
+# Changelog
+
+## [2.1.0] - 2022-01-26
+
+### Fixed
+- Depth and height parameters were switched in metadata conversion. See [#26].
+- Bug in channel lock priority order, which controls the loudspeaker selection when the object position is the same distance from multiple loudspeakers. See [#28].
+- Screen scaling now fails explicitly in cases where it was not well-defined before, generally with extreme positions and sizes. See [#22].
+- Errors with gaps at the start of metadata. See [#13].
+- Rounding of times in XML writer. See [#12].
+- `audioStreamFormat` referencing error messages. See [34b738a] and [04533fc].
+- Improved extraData handling in BW64 reader; see [#48]
+
+### Changed
+- `DirectSpeakers` panner uses allocentric panning for Cartesian positions. See [222374a].
+- Removed python 2.7 support.
+- `fix_block_format_durations` parameter is deprecated, and the ADM XML parser no longer issues warnings for timing issues -- use `ear.fileio.adm.timing_fixes` for this functionality instead. See [#8].
+- `--enable-block-duration-fix` performs more extensive fixes; this now fixes the following issues:
+    - `audioBlockFormats` where the `rtime` plus the `duration` of one `audioBlockFormat` does not match the `rtime` of the next.
+    - `interpolationTime` parameter larger than `duration`.
+    - `audioBlockFormat` `rtime` plus `duration` extending past the end of the containing `audioObject`.
+- Issue a warning for `DirectSpeakers` blocks with a `speakerLabel` containing `LFE` which is not detected as an LFE channel. See [#9].
+- Improved warning and error output: tidier formatting, and repeated warnings are suppressed by default. See [#37].
+
+### Added
+- `loudnessMetadata` data structures, parsing and generation. See [#25].
+- `ear-utils regenerate` command to re-generate AXML and CHNA chunks. See [#8].
+- The `absoluteDistance` parameter is now extracted from AXML and added to the `ExtraData` structure; see [#45].
+- Lots of documentation, see https://ear.readthedocs.io/
+
+## [2.0.0] - 2019-05-22
+
+Changes for ITU ADM renderer reference code.
+
+- Changes to rendering of Objects specified using Cartesian parameters.
+- Added conversion between Cartesian and polar Objects parameters.
+- Changed to BSD-Clear license.
+
+## [1.2.0] - 2019-05-22
+
+### Fixed
+- Slightly non-normalised gains in extent panner.
+
+### Changed
+- Improved downmix/upmix behaviour for DirectSpeakers content specified using
+  the common definitions.
+- Change default azimuth of M+-SC to 15.
+- Support wider azimuths for M+-SC; they may now be between 5 and 25 degrees,
+  or 35 and 60 degrees.
+- Removed LFE behaviour for Objects.
+- Validate Cartesian and frequency information for Objects
+
+## [1.1.2] - 2019-05-22
+
+### Fixed
+- Bug whereby NaNs could be produced in polar extent panner.
+
+## [1.1.1] - 2019-04-12
+
+### Fixed
+- `aspectRatio` is an attribute not an element.
+- Accept the `urn:ebu:metadata-schema:ebuCore_2016` namespace.
+- Added default for Z coordinates.
+- Various deprecation warnings.
+
+### Added
+- Specified loudspeaker positions are now checked against the allowed ranges.
+- Validation of screenEdgeLock in Objects.
+
+## [1.1.0] - 2018-11-26
+
+### Removed
+- `adm_parent` references in ADM objects.
+
+### Added
+- `Matrix` type support.
+- Simple validation of ADM data model, and more extensive validation of ADM
+  structures.
+- Support for rendering objects with silent `audioTrackUID` references.
+- Support for `audioPackFormat` HOA parameters.
+- Selection of `audioProgramme` and complementary `audioObjects` from
+  `ear-render`.
+- `adm_path` to `RenderingItems`, with pointers to the corresponding ADM
+  objects. This is not used by the renderer but is a useful feature for other
+  applications built on top of the underlying ADM library.
+- Support for more flexible referencing of nested `audioPackFormats`; each
+  `audioTrackUID` or `chna` row can reference any appropriate `audioPackFormat`
+  on the path from the root `audioPackFormat` (which contains the full set of
+  `audioChannelFormats` used) to the `audioPackFormat` that contains the
+  `audioChannelFormat` of the track.
+- Better support for using multi-channel `audioPackFormats` -- in an
+  `audioObject` or `chna`-only file using multiple `audioPackFormats` may be
+  ambiguous if they share some `audioChannelFormats`. This should now be
+  handled correctly in all cases.
+
+### Changed
+- The reference direction between `audioTrackFormat` and `audioStreamFormat`
+  was reversed in the data model (`audioTrackFormat`s now point at a single
+  `audioStreamFormat`), and `axml` references in either direction now establish
+  this relationship. Note that this does not follow the exact wording in
+  BS.2076-1, but this helps compatibility with other systems and should match
+  future revisions of BS.2076. If either of these references are omitted a
+  warning will be issued when a file is rendered. When generating BW64+ADM
+  files (with `ear-utils`) both reference directions are now included.
+- Complete re-implementation of `RenderingItem` selection to support other
+  features in this release. This functionality was moved from
+  `ear.fileio.utils` to `ear.core.select_items`.
+- `RenderingItems` now use the `TrackSpec` structure rather than an index to
+  point to their source audio, to allow for silent and `Matrix` tracks.
+
+## [1.0.1] - 2018-11-23
+
+### Changed
+- An error will be raised if any `audioTrackUID` elements or CHNA rows have ID
+  `ATU_00000000`, as references to these elements could be confused with silent
+  `audioTrackUID` references.
+- Miscellaneous improvements to testing infrastructure.
+
+### Fixed
+- When generating BW64+ADM files (with `ear-utils`), do not generate
+  `audioTrackUID`s with ID `ATU_00000000`, which (as above) could be confused
+  with silent `audioTrackUID` references.
+- Updated use of `attrs` to fix deprecation warnings.
+- Wrong imports and CHNA chunk generation in `replace_axml` command.
+- Pytest warnings fixed by upgrading `pytest-datafiles` to 2.0.
+- Error when testing `block_aligner` on python 3.7 with coverage enabled.
+- Error in `PeakMonitor` when rendering very short files.
+- `dump_chna` in binary mode on python 3.
+- Padding character in axml chunk.
+
+## 1.0.0 - 2018-03-29
+
+Initial release.
+
+[#8]: https://github.com/ebu/ebu_adm_renderer/pull/8
+[#9]: https://github.com/ebu/ebu_adm_renderer/pull/9
+[#12]: https://github.com/ebu/ebu_adm_renderer/pull/12
+[#13]: https://github.com/ebu/ebu_adm_renderer/pull/13
+[#22]: https://github.com/ebu/ebu_adm_renderer/pull/22
+[#25]: https://github.com/ebu/ebu_adm_renderer/pull/25
+[#26]: https://github.com/ebu/ebu_adm_renderer/pull/26
+[#28]: https://github.com/ebu/ebu_adm_renderer/pull/28
+[#37]: https://github.com/ebu/ebu_adm_renderer/pull/37
+[#45]: https://github.com/ebu/ebu_adm_renderer/pull/45
+[#48]: https://github.com/ebu/ebu_adm_renderer/pull/48
+[34b738a]: https://github.com/ebu/ebu_adm_renderer/commit/34b738a
+[04533fc]: https://github.com/ebu/ebu_adm_renderer/commit/04533fc
+[222374a]: https://github.com/ebu/ebu_adm_renderer/commit/222374a
+[2.1.0]: https://github.com/ebu/ebu_adm_renderer/compare/2.0.0...2.1.0
+[2.0.0]: https://github.com/ebu/ebu_adm_renderer/compare/1.2.0...2.0.0
+[1.2.0]: https://github.com/ebu/ebu_adm_renderer/compare/1.1.2...1.2.0
+[1.1.2]: https://github.com/ebu/ebu_adm_renderer/compare/1.1.1...1.1.2
+[1.1.1]: https://github.com/ebu/ebu_adm_renderer/compare/1.1.0...1.1.1
+[1.1.0]: https://github.com/ebu/ebu_adm_renderer/compare/1.0.1...1.1.0
+[1.0.1]: https://github.com/ebu/ebu_adm_renderer/compare/1.0.0...1.0.1
