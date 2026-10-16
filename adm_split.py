@@ -1,29 +1,28 @@
 """
-Estrae una porzione temporale ("region") da un file ADM/BW64 gia'
-esportato, come brano o atto autonomo.
+Extracts a time portion ("region") from an already-exported ADM/BW64
+file, as a standalone song or act.
 
-Perche' non e' un taglio audio soltanto: per ogni oggetto i tempi di
-blocco (rtime/duration) sono relativi all'inizio dell'oggetto, che a sua
-volta e' relativo all'inizio del file (verificato nel codice della
-libreria `ear`: block_start = object_start + rtime). Estrarre una region
-richiede quindi tenere solo i blocchi che la toccano, accorciare quelli a
-cavallo del confine, e ricalcolare tutti i tempi rispetto al nuovo zero.
-La logica di calcolo (clip_object_timing) e' stata verificata a mano su
-tre casi — sovrapposizione parziale, oggetto fuori regione, taglio esatto
-su un confine — prima di essere usata qui.
+Why this isn't just an audio cut: for every object, block timings
+(rtime/duration) are relative to the object's own start, which is in
+turn relative to the start of the file (verified in the `ear` library's
+own code: block_start = object_start + rtime). Extracting a region
+therefore requires keeping only the blocks that touch it, shortening
+the ones that straddle a boundary, and rebasing all timings onto the
+new zero. The calculation logic (clip_object_timing) was verified by
+hand on three cases - partial overlap, object entirely outside the
+region, cut exactly on a boundary - before being used here.
 
-Gli oggetti che non si sovrappongono affatto alla region vengono rimossi
-per intero, canale audio compreso, non lasciati come canali silenziosi:
-pensato per chi lavora con molte take multitraccia nello stesso progetto.
+Objects that don't overlap the region at all are removed entirely,
+audio channel included, not left as silent channels: built for people
+working with many multitrack takes in the same project.
 
-Implementazione: invece di editare il testo XML del file sorgente a mano
-(rischioso: un campo dimenticato in un blocco copiato a meta' e' un
-errore silenzioso, non un crash), il file viene RICOSTRUITO da zero con
-ADMBuilder a partire dal modello a oggetti che la libreria `ear` fornisce
-in lettura. I singoli blockFormat vengono clonati con `attr.evolve`,
-cambiando solo rtime/duration: ogni altro campo (posizione, width, gain,
-diffuse...) e' garantito identico all'originale perche' non viene mai
-ricopiato a mano.
+Implementation: rather than hand-editing the source file's XML text
+(risky - a field forgotten in a half-copied block is a silent error,
+not a crash), the file is REBUILT from scratch with ADMBuilder, from
+the object model the `ear` library itself provides on read. Individual
+blockFormats are cloned with `attr.evolve`, changing only rtime/
+duration: every other field (position, width, gain, diffuse...) is
+guaranteed identical to the original because it's never hand-copied.
 """
 
 import re
@@ -44,22 +43,22 @@ from ear.core.select_items import select_rendering_items
 
 
 # --------------------------------------------------------------------------
-# Lettura del CSV region/marker esportato da REAPER (Region/Marker Manager)
+# Reading the region/marker CSV exported from REAPER (Region/Marker Manager)
 # --------------------------------------------------------------------------
 
 _TIME_RE = re.compile(r"^(\d+):(\d{2}):(\d{2}(?:\.\d+)?)$")
 
 
 def _parse_time(s):
-    """'0:00:12.000000' o '12.000000' -> secondi (float).
+    """'0:00:12.000000' or '12.000000' -> seconds (float).
 
-    Il primo formato e' quello di REAPER (Region/Marker Manager, con il
-    righello impostato su Time (seconds)); il secondo e' quello scritto
-    direttamente da export_and_split.lua (secondi semplici, via API,
-    senza passare dal Manager). Entrambi i CSV usano la stessa
-    intestazione "#,Name,Start,End,Length", quindi vanno accettati
-    entrambi qui piuttosto che vincolare lo script Lua a un formato che
-    poi deve essere riformattato. None se vuoto (marker puntuale).
+    The first format is REAPER's own (Region/Marker Manager, with the
+    ruler set to Time (seconds)); the second is what export_and_split.lua
+    writes directly (plain seconds, via the API, without going through
+    the Manager). Both CSVs use the same "#,Name,Start,End,Length"
+    header, so both are accepted here rather than constraining the Lua
+    script to a format it would then have to reformat. None if empty
+    (point marker).
     """
     s = s.strip()
     if not s:
@@ -72,22 +71,22 @@ def _parse_time(s):
         return float(s)
     except ValueError:
         raise ValueError(
-            "Formato tempo non riconosciuto: %r. Atteso H:MM:SS.ffffff "
-            "(REAPER, Region/Marker Manager con righello in Time "
-            "(seconds)) oppure secondi semplici (es. 12.000000)." % s)
+            "Unrecognised time format: %r. Expected H:MM:SS.ffffff "
+            "(REAPER, Region/Marker Manager with the ruler in Time "
+            "(seconds)) or plain seconds (e.g. 12.000000)." % s)
 
 
 def read_regions_csv(path):
-    """Legge il CSV esportato da Region/Marker Manager.
+    """Reads the CSV exported from the Region/Marker Manager.
 
-    Ritorna una lista di dict {id, name, start, end} in SECONDI — i
-    marker puntuali (senza End) sono scartati: non definiscono un
-    intervallo da estrarre.
+    Returns a list of {id, name, start, end} dicts in SECONDS - point
+    markers (no End) are dropped: they don't define an interval to
+    extract.
     """
     with open(path, encoding="utf-8-sig") as f:
         lines = [l.rstrip("\n").rstrip("\r") for l in f if l.strip()]
     if not lines:
-        raise ValueError("File vuoto")
+        raise ValueError("Empty file")
 
     header = [h.strip() for h in lines[0].split(",")]
     try:
@@ -97,7 +96,7 @@ def read_regions_csv(path):
         idx_end = header.index("End")
     except ValueError:
         raise ValueError(
-            "Intestazione CSV inattesa: %r. Atteso qualcosa come "
+            "Unexpected CSV header: %r. Expected something like "
             "'#,Name,Start,End,Length'." % header)
 
     regions = []
@@ -110,22 +109,22 @@ def read_regions_csv(path):
         start = _parse_time(cols[idx_start])
         end = _parse_time(cols[idx_end])
         if start is None or end is None:
-            continue  # marker puntuale, non una region
+            continue  # point marker, not a region
         regions.append({"id": row_id, "name": name or row_id,
                         "start": start, "end": end})
     return regions
 
 
 # --------------------------------------------------------------------------
-# Taglio/ribasamento dei tempi
+# Timing cut/rebase
 # --------------------------------------------------------------------------
 
 def clip_object_timing(obj_start, obj_duration, blocks, t0, t1):
-    """blocks: lista di (rtime, duration) Fraction, relativi a obj_start.
+    """blocks: list of (rtime, duration) Fraction, relative to obj_start.
 
-    Ritorna (new_obj_duration, [(new_rtime, new_duration), ...]) con i
-    tempi gia' ribasati sul nuovo zero (inizio della region), oppure None
-    se l'oggetto non si sovrappone a [t0, t1) per nulla.
+    Returns (new_obj_duration, [(new_rtime, new_duration), ...]) with
+    timings already rebased onto the new zero (the region's start), or
+    None if the object doesn't overlap [t0, t1) at all.
     """
     obj_end = obj_start + obj_duration
     if obj_end <= t0 or obj_start >= t1:
@@ -149,12 +148,12 @@ def clip_object_timing(obj_start, obj_duration, blocks, t0, t1):
 
 
 # --------------------------------------------------------------------------
-# Splitter principale
+# Main splitter
 # --------------------------------------------------------------------------
 
 def split_region(input_path, output_path, region_start_s, region_end_s,
                  log=None):
-    """Estrae [region_start_s, region_end_s) da input_path in output_path."""
+    """Extracts [region_start_s, region_end_s) from input_path into output_path."""
 
     def _log(msg):
         if log:
@@ -163,7 +162,7 @@ def split_region(input_path, output_path, region_start_s, region_end_s,
     t0 = Fraction(region_start_s).limit_denominator(10_000_000)
     t1 = Fraction(region_end_s).limit_denominator(10_000_000)
     if t1 <= t0:
-        raise ValueError("La fine della region deve essere dopo l'inizio")
+        raise ValueError("Region end must be after start")
 
     with openBw64Adm(input_path) as reader:
         sample_rate = reader.sampleRate
@@ -177,8 +176,8 @@ def split_region(input_path, output_path, region_start_s, region_end_s,
         builder.create_programme(audioProgrammeName="split")
         builder.create_content(audioContentName="c")
 
-        # canale audio sorgente (indice 0-based) -> nuovo indice (0-based)
-        # nell'ordine in cui li aggiungiamo al builder
+        # source audio channel (0-based index) -> new index (0-based)
+        # in the order we add them to the builder
         source_channels = []
         n_kept = 0
         n_dropped = 0
@@ -197,8 +196,8 @@ def split_region(input_path, output_path, region_start_s, region_end_s,
                       if block.extra_data.object_duration is not None
                       else file_duration - obj_start)
 
-            # raccolgo TUTTI i blocchi di questo channel format (non solo
-            # il primo): riavvolgo il metadata_source per scorrerli tutti
+            # collect ALL blocks of this channel format (not just the
+            # first): keep pulling from metadata_source to walk them all
             all_blocks = [bf]
             while True:
                 nxt = item.metadata_source.get_next_block()
@@ -237,8 +236,8 @@ def split_region(input_path, output_path, region_start_s, region_end_s,
                     track_index=new_channel_index, name=name,
                     block_formats=new_blocks)
             else:
-                _log("  ! tipo non gestito da questo splitter (%s), "
-                     "oggetto scartato" % type(item).__name__)
+                _log("  ! type not handled by this splitter (%s), "
+                     "item dropped" % type(item).__name__)
                 source_channels.pop()
                 n_dropped += 1
                 continue
@@ -248,14 +247,13 @@ def split_region(input_path, output_path, region_start_s, region_end_s,
             adm.audioObjects[-1].duration = new_obj_duration
             n_kept += 1
 
-        _log("Canali mantenuti: %d, rimossi: %d" % (n_kept, n_dropped))
+        _log("Channels kept: %d, dropped: %d" % (n_kept, n_dropped))
 
         if n_kept == 0:
             raise ValueError(
-                "Nessun oggetto si sovrappone a questa region "
-                "(%.3f-%.3f s): il file risulterebbe vuoto. Controlla i "
-                "tempi della region rispetto alla durata del file "
-                "sorgente." % (float(t0), float(t1)))
+                "No item overlaps this region (%.3f-%.3f s): the output "
+                "file would be empty. Check the region's timing against "
+                "the source file's duration." % (float(t0), float(t1)))
 
         adm = builder.adm
         generate_ids(adm)
@@ -280,15 +278,15 @@ def split_region(input_path, output_path, region_start_s, region_end_s,
                 out.write(block[:, source_channels])
                 done += n
 
-    _log("Scritto: %s" % output_path)
+    _log("Written: %s" % output_path)
     return {"kept": n_kept, "dropped": n_dropped}
 
 
 def verify(output_path, log=None):
-    """Riapre il file con il lettore ADM completo, per conferma."""
+    """Reopens the file with the full ADM reader, for confirmation."""
     with openBw64Adm(output_path) as f:
         items = select_rendering_items(f.adm)
     if log:
-        log("Verifica: %d item, %d canali audio." %
+        log("Verification: %d items, %d audio channels." %
             (len(items), f.channels))
     return len(items)

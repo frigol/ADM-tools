@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-ADM to AmbiX — converte scene ADM/BW64 in file ambisonici.
+ADM to AmbiX — converts ADM/BW64 scenes into ambisonic files.
 
-Interfaccia grafica: coda di file, cartella di destinazione, ordine di
-uscita e opzioni di codifica.
+Graphical interface: file queue, destination folder, output order and
+encoding options.
 
-Uso:
-    python3 adm2ambix.py            avvia l'interfaccia
-    python3 adm2ambix.py --cli ...  modalita' riga di comando
+Usage:
+    python3 adm2ambix.py            launches the interface
+    python3 adm2ambix.py --cli ...  command-line mode
 
-Requisiti: python3, numpy, ear  (pip install ear)
+Requirements: python3, numpy, ear  (pip install ear)
 """
 
 import os
@@ -43,16 +43,21 @@ def run_gui():
 
     root = tk.Tk()
     root.title("ADM to AmbiX")
-    root.geometry("860x640")
+    # Real size is set at the end, once every widget exists, from Tk's
+    # own computed required size (root.winfo_reqheight()) rather than a
+    # hardcoded guess - a fixed WxH here was cutting off the bottom
+    # buttons on setups where the font/widget metrics render taller
+    # than whatever this was last measured on.
+    root.geometry("860x100")
 
     state = {"running": False, "stop": False}
     msg_q = queue.Queue()
 
-    # ---- coda dei file -------------------------------------------------
-    frm_files = ttk.LabelFrame(root, text="File da convertire", padding=8)
+    # ---- file queue -------------------------------------------------
+    frm_files = ttk.LabelFrame(root, text="Files to convert", padding=8)
     frm_files.pack(fill="both", expand=True, padx=10, pady=(10, 4))
 
-    cols = ("file", "sr", "ch", "durata", "contenuto")
+    cols = ("file", "sr", "ch", "duration", "contents")
     tree = ttk.Treeview(frm_files, columns=cols, show="headings", height=8)
     widths = (300, 70, 50, 80, 240)
     for c, w in zip(cols, widths):
@@ -66,14 +71,14 @@ def run_gui():
     paths = []
 
     def add_path(p):
-        """Aggiunge un percorso alla coda (se non gia' presente) e ne
-        avvia la lettura in background. Riusata sia da 'Aggiungi file'
-        sia dopo una riparazione, per accodare l'output."""
+        """Adds a path to the queue (if not already present) and starts
+        reading it in the background. Reused by both 'Add files' and
+        after a repair, to queue the output."""
         if p in paths:
             return
         paths.append(p)
         tree.insert("", "end", values=(os.path.basename(p), "", "", "",
-                                       "lettura in corso..."))
+                                       "reading..."))
         threading.Thread(target=scan_one, args=(len(paths) - 1,),
                          daemon=True).start()
 
@@ -83,25 +88,25 @@ def run_gui():
             info = inspect_file(p)
             desc = []
             if info["objects"]:
-                desc.append("%d oggetti" % info["objects"])
+                desc.append("%d objects" % info["objects"])
             if info["direct_speakers"]:
                 desc.append("%d direct spk" % info["direct_speakers"])
             if info["hoa"]:
                 o = max(info["hoa_orders"]) if info["hoa_orders"] else "?"
-                desc.append("%d HOA (ord. %s)" % (info["hoa"], o))
+                desc.append("%d HOA (order %s)" % (info["hoa"], o))
             if info["errors"]:
-                desc.append("! validazione")
+                desc.append("! validation")
             vals = (os.path.basename(p), "%d" % info["sample_rate"],
                     "%d" % info["channels"], "%.1f s" % info["duration_s"],
-                    ", ".join(desc) or "nessun item")
+                    ", ".join(desc) or "no items")
         except Exception as exc:
-            vals = (os.path.basename(p), "", "", "", "ERRORE: %s" % exc)
+            vals = (os.path.basename(p), "", "", "", "ERROR: %s" % exc)
         msg_q.put(("row", (idx, vals)))
 
     def add_files():
         sel = filedialog.askopenfilenames(
-            title="Seleziona file ADM/BW64",
-            filetypes=[("BW64/WAV", "*.wav *.bw64 *.WAV"), ("Tutti", "*.*")])
+            title="Select ADM/BW64 files",
+            filetypes=[("BW64/WAV", "*.wav *.bw64 *.WAV"), ("All files", "*.*")])
         for p in sel:
             add_path(p)
 
@@ -117,34 +122,34 @@ def run_gui():
 
     frm_btn = ttk.Frame(root)
     frm_btn.pack(fill="x", padx=10)
-    ttk.Button(frm_btn, text="Aggiungi file...", command=add_files).pack(side="left")
-    ttk.Button(frm_btn, text="Rimuovi", command=remove_selected).pack(side="left", padx=4)
-    ttk.Button(frm_btn, text="Svuota", command=clear_all).pack(side="left")
-    ttk.Label(frm_btn, text="   ").pack(side="left")  # separatore visivo
-    btn_repair = ttk.Button(frm_btn, text="Ripara selezionati (EPS)")
+    ttk.Button(frm_btn, text="Add files...", command=add_files).pack(side="left")
+    ttk.Button(frm_btn, text="Remove", command=remove_selected).pack(side="left", padx=4)
+    ttk.Button(frm_btn, text="Clear", command=clear_all).pack(side="left")
+    ttk.Label(frm_btn, text="   ").pack(side="left")  # visual separator
+    btn_repair = ttk.Button(frm_btn, text="Repair selected (EPS)")
     btn_repair.pack(side="left")
     ttk.Label(frm_btn,
-             text="genera un file _repaired.wav accanto all'originale "
-                  "e lo accoda; l'originale non viene toccato",
+             text="writes a _repaired.wav file next to the original "
+                  "and queues it; the original is left untouched",
              foreground="#888").pack(side="left", padx=6)
 
-    # ---- destinazione --------------------------------------------------
-    frm_out = ttk.LabelFrame(root, text="Destinazione", padding=8)
+    # ---- destination --------------------------------------------------
+    frm_out = ttk.LabelFrame(root, text="Destination", padding=8)
     frm_out.pack(fill="x", padx=10, pady=(8, 4))
     out_dir = tk.StringVar(value="")
     ttk.Entry(frm_out, textvariable=out_dir).pack(side="left", fill="x",
                                                   expand=True, padx=(0, 6))
 
     def choose_dir():
-        d = filedialog.askdirectory(title="Cartella di destinazione")
+        d = filedialog.askdirectory(title="Destination folder")
         if d:
             out_dir.set(d)
 
-    ttk.Button(frm_out, text="Sfoglia...", command=choose_dir).pack(side="left")
-    ttk.Label(frm_out, text="(vuoto = accanto all'originale)").pack(side="left", padx=6)
+    ttk.Button(frm_out, text="Browse...", command=choose_dir).pack(side="left")
+    ttk.Label(frm_out, text="(empty = next to the original)").pack(side="left", padx=6)
 
-    # ---- opzioni -------------------------------------------------------
-    frm_opt = ttk.LabelFrame(root, text="Codifica", padding=8)
+    # ---- options -------------------------------------------------------
+    frm_opt = ttk.LabelFrame(root, text="Encoding", padding=8)
     frm_opt.pack(fill="x", padx=10, pady=4)
 
     order_var = tk.IntVar(value=3)
@@ -159,38 +164,38 @@ def run_gui():
     ch_label = tk.StringVar()
 
     def update_ch(*_):
-        ch_label.set("%d canali" % n_channels_for_order(order_var.get()))
+        ch_label.set("%d channels" % n_channels_for_order(order_var.get()))
 
     order_var.trace_add("write", update_ch)
     update_ch()
 
     r1 = ttk.Frame(frm_opt); r1.pack(fill="x", pady=2)
-    ttk.Label(r1, text="Ordine:").pack(side="left")
+    ttk.Label(r1, text="Order:").pack(side="left")
     ttk.Combobox(r1, textvariable=order_var, values=ORDERS, width=4,
                  state="readonly").pack(side="left", padx=(4, 2))
     ttk.Label(r1, textvariable=ch_label, width=12).pack(side="left")
-    ttk.Label(r1, text="Normalizzazione:").pack(side="left", padx=(12, 4))
+    ttk.Label(r1, text="Normalisation:").pack(side="left", padx=(12, 4))
     ttk.Combobox(r1, textvariable=norm_var, values=["SN3D", "N3D"], width=6,
                  state="readonly").pack(side="left")
-    ttk.Label(r1, text="Guadagno dB:").pack(side="left", padx=(12, 4))
+    ttk.Label(r1, text="Gain dB:").pack(side="left", padx=(12, 4))
     ttk.Spinbox(r1, textvariable=gain_var, from_=-24, to=24, increment=0.5,
                 width=6).pack(side="left")
 
     r2 = ttk.Frame(frm_opt); r2.pack(fill="x", pady=2)
     ttk.Checkbutton(r2, text="max-rE", variable=maxre_var).pack(side="left")
-    ttk.Checkbutton(r2, text="rendi diffuse (decorrelatori)",
+    ttk.Checkbutton(r2, text="make diffuse (decorrelators)",
                     variable=diffuse_var).pack(side="left", padx=10)
-    ttk.Checkbutton(r2, text="applica distanza come guadagno",
+    ttk.Checkbutton(r2, text="apply distance as gain",
                     variable=dist_var).pack(side="left")
 
     r3 = ttk.Frame(frm_opt); r3.pack(fill="x", pady=2)
-    ttk.Label(r3, text="Includi:").pack(side="left")
-    ttk.Checkbutton(r3, text="oggetti", variable=obj_var).pack(side="left", padx=4)
+    ttk.Label(r3, text="Include:").pack(side="left")
+    ttk.Checkbutton(r3, text="objects", variable=obj_var).pack(side="left", padx=4)
     ttk.Checkbutton(r3, text="direct speakers", variable=ds_var).pack(side="left", padx=4)
-    ttk.Checkbutton(r3, text="pacchetti HOA", variable=hoa_var).pack(side="left", padx=4)
+    ttk.Checkbutton(r3, text="HOA packs", variable=hoa_var).pack(side="left", padx=4)
 
-    # ---- log e avanzamento ---------------------------------------------
-    frm_log = ttk.LabelFrame(root, text="Registro", padding=6)
+    # ---- log and progress ---------------------------------------------
+    frm_log = ttk.LabelFrame(root, text="Log", padding=6)
     frm_log.pack(fill="both", expand=True, padx=10, pady=4)
     log_box = tk.Text(frm_log, height=8, wrap="word")
     log_box.pack(fill="both", expand=True)
@@ -200,9 +205,9 @@ def run_gui():
     frm_run.pack(fill="x", padx=10, pady=(4, 10))
     prog = ttk.Progressbar(frm_run, mode="determinate", maximum=1000)
     prog.pack(side="left", fill="x", expand=True, padx=(0, 8))
-    btn_start = ttk.Button(frm_run, text="Converti")
+    btn_start = ttk.Button(frm_run, text="Convert")
     btn_start.pack(side="left")
-    btn_stop = ttk.Button(frm_run, text="Interrompi", state="disabled")
+    btn_stop = ttk.Button(frm_run, text="Stop", state="disabled")
     btn_stop.pack(side="left", padx=4)
 
     def log(msg):
@@ -212,7 +217,7 @@ def run_gui():
         if state["running"]:
             return
         if not paths:
-            messagebox.showinfo("Nessun file", "Aggiungi almeno un file.")
+            messagebox.showinfo("No files", "Add at least one file.")
             return
         settings = Settings(
             order=order_var.get(), norm=norm_var.get(),
@@ -237,9 +242,9 @@ def run_gui():
                               progress=lambda f: msg_q.put(("prog", f)),
                               log=log,
                               should_stop=lambda: state["stop"])
-                log("Fatto.")
+                log("Done.")
             except Exception:
-                log("ERRORE:\n" + traceback.format_exc())
+                log("ERROR:\n" + traceback.format_exc())
             finally:
                 msg_q.put(("done", None))
 
@@ -247,16 +252,16 @@ def run_gui():
 
     def stop():
         state["stop"] = True
-        log("Interruzione richiesta, attendo la fine del file corrente...")
+        log("Stop requested, waiting for the current file to finish...")
 
     def repair_selected():
         if state["running"]:
             return
         sel_idx = sorted(tree.index(iid) for iid in tree.selection())
         if not sel_idx:
-            messagebox.showinfo("Nessuna selezione",
-                                "Seleziona nella lista uno o piu' file "
-                                "esportati dalla EPS da riparare.")
+            messagebox.showinfo("Nothing selected",
+                                "Select one or more EPS-exported files "
+                                "in the list to repair.")
             return
 
         from adm_repair import repair_file, verify
@@ -273,16 +278,16 @@ def run_gui():
                     src = paths[i]
                     base, _ = os.path.splitext(src)
                     dst = base + "_repaired.wav"
-                    log("Riparazione: %s" % os.path.basename(src))
+                    log("Repairing: %s" % os.path.basename(src))
                     try:
                         report = repair_file(src, dst, log=lambda m: log("  " + m))
                         verify(dst, log=lambda m: log("  " + m))
                         root.after(0, add_path, dst)
                     except Exception as exc:
-                        log("  ERRORE: %s" % exc)
-                log("Riparazione completata.")
+                        log("  ERROR: %s" % exc)
+                log("Repair complete.")
             except Exception:
-                log("ERRORE:\n" + traceback.format_exc())
+                log("ERROR:\n" + traceback.format_exc())
             finally:
                 msg_q.put(("done", None))
 
@@ -317,6 +322,16 @@ def run_gui():
             pass
         root.after(80, pump)
 
+    # Size the window to what it actually needs now that every widget
+    # exists, instead of the small placeholder geometry set at the top -
+    # update_idletasks() forces Tk to compute real layout sizes first
+    # (winfo_reqheight() is 1 otherwise). minsize() stops a later manual
+    # resize from accidentally hiding the bottom buttons again.
+    root.update_idletasks()
+    req_w, req_h = root.winfo_reqwidth(), root.winfo_reqheight()
+    root.geometry("%dx%d" % (max(req_w, 860), req_h))
+    root.minsize(max(req_w, 860), req_h)
+
     pump()
     root.mainloop()
 
@@ -330,17 +345,17 @@ def run_repair_cli(argv):
     from adm_repair import repair_file, verify
 
     p = argparse.ArgumentParser(
-        description="Ripara file ADM esportati dalla EAR Production Suite "
-                    "(audioTrackFormat/audioStreamFormat mancanti o "
-                    "riferimenti a common definition sbagliati). Passaggio "
-                    "SEPARATO dalla conversione: un file gia' corretto passa "
-                    "senza modifiche, quindi e' sicuro lanciarlo sempre "
-                    "prima di --inspect o della conversione se non sei "
-                    "certo che l'export sia valido.")
-    p.add_argument("inputs", nargs="+", help="file .wav da riparare")
+        description="Repairs ADM files exported by the EAR Production "
+                    "Suite (missing audioTrackFormat/audioStreamFormat, "
+                    "or wrong references to common definitions). A step "
+                    "SEPARATE from conversion: an already-correct file "
+                    "passes through unchanged, so it's safe to always "
+                    "run it before --inspect or conversion if you're not "
+                    "sure the export is valid.")
+    p.add_argument("inputs", nargs="+", help=".wav files to repair")
     p.add_argument("-o", "--out-dir", default="",
-                   help="cartella di destinazione (default: accanto "
-                        "all'originale, suffisso _repaired)")
+                   help="destination folder (default: next to the "
+                        "original, _repaired suffix)")
     a = p.parse_args(argv)
 
     any_error = False
@@ -355,7 +370,7 @@ def run_repair_cli(argv):
             if report["unresolvable"]:
                 any_error = True
         except Exception as exc:
-            print("  ERRORE: %s" % exc)
+            print("  ERROR: %s" % exc)
             any_error = True
     return 1 if any_error else 0
 
@@ -395,7 +410,9 @@ def run_cli(argv):
 
 def run_split_cli(argv):
     import argparse
+    import tempfile
     from adm_split import split_region, verify, read_regions_csv
+    from adm_repair import repair_file
 
     p = argparse.ArgumentParser(
         description="Extracts one time region (a song, an act) from a "
@@ -414,44 +431,74 @@ def run_split_cli(argv):
     p.add_argument("--name", default="region",
                    help="output file suffix when using --start/--end "
                         "instead of --regions-csv")
+    p.add_argument("--no-repair", action="store_true",
+                   help="skip the automatic repair pass (by default, a "
+                        "throwaway repaired copy is always made first - "
+                        "see adm_repair.py/the README - since it's a "
+                        "no-op on an already-correct file)")
     a = p.parse_args(argv)
 
     base = os.path.splitext(os.path.basename(a.input))[0]
     out_dir = a.out_dir or os.path.dirname(a.input)
 
-    if a.regions_csv:
-        regions = read_regions_csv(a.regions_csv)
-        if not regions:
-            print("No regions found in %s (only point markers?)" %
-                 a.regions_csv)
-            return 1
-        any_error = False
-        for r in regions:
-            safe_name = "".join(c if c.isalnum() or c in "-_ " else "_"
-                                for c in r["name"]).strip() or r["id"]
-            out = os.path.join(out_dir, "%s_%s.wav" % (base, safe_name))
-            print("%s  [%.3f s - %.3f s]" % (r["name"], r["start"], r["end"]))
-            try:
-                split_region(a.input, out, r["start"], r["end"],
-                             log=lambda m: print("  " + m))
-                verify(out, log=lambda m: print("  " + m))
-            except Exception as exc:
-                print("  ERROR: %s" % exc)
-                any_error = True
-        return 1 if any_error else 0
+    # Repaired once, up front, into a throwaway temp copy reused for
+    # every region below - not once per region, and not left behind
+    # afterwards. Safe to always run: a no-op (plain copy) on a file
+    # that's already correct.
+    split_src = a.input
+    tmp_repaired = None
+    if not a.no_repair:
+        try:
+            fd, tmp_repaired = tempfile.mkstemp(suffix=".wav",
+                                                 prefix="adm_repaired_")
+            os.close(fd)
+            print("Checking/repairing references...")
+            repair_file(a.input, tmp_repaired, log=lambda m: print("  " + m))
+            split_src = tmp_repaired
+        except Exception as exc:
+            print("  Repair step failed, splitting the original file "
+                 "as-is: %s" % exc)
+            if tmp_repaired and os.path.exists(tmp_repaired):
+                os.remove(tmp_repaired)
+            tmp_repaired = None
 
-    if a.start is None or a.end is None:
-        print("Provide either --regions-csv or both --start and --end.")
-        return 1
-
-    out = os.path.join(out_dir, "%s_%s.wav" % (base, a.name))
     try:
-        split_region(a.input, out, a.start, a.end, log=print)
-        verify(out, log=print)
-    except Exception as exc:
-        print("ERROR: %s" % exc)
-        return 1
-    return 0
+        if a.regions_csv:
+            regions = read_regions_csv(a.regions_csv)
+            if not regions:
+                print("No regions found in %s (only point markers?)" %
+                     a.regions_csv)
+                return 1
+            any_error = False
+            for r in regions:
+                safe_name = "".join(c if c.isalnum() or c in "-_ " else "_"
+                                    for c in r["name"]).strip() or r["id"]
+                out = os.path.join(out_dir, "%s_%s.wav" % (base, safe_name))
+                print("%s  [%.3f s - %.3f s]" % (r["name"], r["start"], r["end"]))
+                try:
+                    split_region(split_src, out, r["start"], r["end"],
+                                 log=lambda m: print("  " + m))
+                    verify(out, log=lambda m: print("  " + m))
+                except Exception as exc:
+                    print("  ERROR: %s" % exc)
+                    any_error = True
+            return 1 if any_error else 0
+
+        if a.start is None or a.end is None:
+            print("Provide either --regions-csv or both --start and --end.")
+            return 1
+
+        out = os.path.join(out_dir, "%s_%s.wav" % (base, a.name))
+        try:
+            split_region(split_src, out, a.start, a.end, log=print)
+            verify(out, log=print)
+        except Exception as exc:
+            print("ERROR: %s" % exc)
+            return 1
+        return 0
+    finally:
+        if tmp_repaired and os.path.exists(tmp_repaired):
+            os.remove(tmp_repaired)
 
 
 if __name__ == "__main__":
@@ -467,5 +514,5 @@ if __name__ == "__main__":
     try:
         run_gui()
     except ImportError:
-        print("tkinter non disponibile; usa --cli")
+        print("tkinter not available; use --cli")
         sys.exit(run_cli(sys.argv[1:]))

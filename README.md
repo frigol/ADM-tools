@@ -19,7 +19,7 @@ at all.
 
 - **ADM to AmbiX.app** — the conversion GUI (`adm2ambix.py`): order,
   normalisation, per-item inclusion, repair.
-- **ADM Split per Region.app** — the region-split GUI (`adm_split_gui.py`,
+- **ADM Split by Region.app** — the region-split GUI (`adm_split_gui.py`,
   see "Splitting by region" below): reads regions straight from a
   REAPER `.rpp` project file, or from a CSV.
 
@@ -46,7 +46,7 @@ To rebuild the `.app` bundles after a code change:
 pip3 install pyinstaller
 pyinstaller --windowed --name "ADM to AmbiX" --collect-all ear \
   --hidden-import tkinter --collect-all pkg_resources --noconfirm adm2ambix.py
-pyinstaller --windowed --name "ADM Split per Region" --collect-all ear \
+pyinstaller --windowed --name "ADM Split by Region" --collect-all ear \
   --hidden-import tkinter --collect-all pkg_resources --noconfirm adm_split_gui.py
 ```
 
@@ -194,14 +194,23 @@ one value). Workflow:
 
 1. Record and edit normally; mark each song/movement as a region.
 2. Render the full session to ADM BW64, as you'd render anything else.
-3. Open **ADM Split per Region.app**, point it at the rendered file and
+3. Open **ADM Split by Region.app**, point it at the rendered file and
    at the project's **`.rpp` file** — regions are read straight out of
    it, no REAPER needed open, no manual export step. Uncheck any region
-   you don't want, choose a destination, click Dividi.
+   you don't want, choose a destination, click Split.
 
 Each output file is a standalone ADM document: object timing is rebased
 to zero at the region's start, and objects that don't overlap the region
 at all are dropped entirely (audio channel included), not just silenced.
+
+**Broken references are repaired automatically.** Before splitting, the
+app runs the same repair step described above on a throwaway temporary
+copy of the source file (not saved, deleted once the split is done) and
+splits from that instead — no separate "Repair selected (EPS)" step
+needed first, and no effect on an already-correct file (the repair is a
+no-op, just a copy, when nothing needs fixing). If the file has a
+reference problem the repair step can't resolve, the error says so
+explicitly instead of a raw traceback.
 
 Regions are **not** stored inside the ADM/BWF file itself — that's not
 part of the ADM standard, and the reader this tool uses doesn't parse
